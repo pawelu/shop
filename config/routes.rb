@@ -61,3 +61,10 @@ Rails.application.routes.draw do
   #     resources :products
   #   end
 end
+
+Spree::Core::Engine.add_routes do
+  get '/forbidden', to: 'home#forbidden', as: :forbidden
+  # those routes are needed for mailers
+  root to: 'home#index'
+  resources :products, only: [:index, :show]
+end
