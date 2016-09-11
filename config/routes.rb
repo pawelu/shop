@@ -1,4 +1,8 @@
 Rails.application.routes.draw do
+  mount Spree::Core::Engine, at: '/'
+end
+
+Spree::Core::Engine.routes.prepend do
   get '/forbidden', to: 'home#forbidden', as: :forbidden
   # those routes are needed for mailers
   root to: 'home#index'
