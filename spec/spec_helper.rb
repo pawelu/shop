@@ -23,39 +23,47 @@ rescue LoadError
 end
 
 require 'rspec/rails'
+require 'ffaker'
 
 # Requires supporting files with custom matchers and macros, etc,
 # in ./support/ and its subdirectories.
 Dir["#{File.dirname(__FILE__)}/support/**/*.rb"].each {|f| require f}
 
 require 'database_cleaner'
-require 'ffaker'
-require 'timeout'
+
+if ENV["CHECK_TRANSLATIONS"]
+  require "spree/testing_support/i18n"
+end
 
 require 'spree/testing_support/authorization_helpers'
+require 'spree/testing_support/capybara_ext'
 require 'spree/testing_support/factories'
 require 'spree/testing_support/preferences'
 require 'spree/testing_support/controller_requests'
 require 'spree/testing_support/flash'
 require 'spree/testing_support/url_helpers'
 require 'spree/testing_support/order_walkthrough'
-require 'spree/testing_support/capybara_ext'
+require 'spree/testing_support/caching'
 require 'spree/testing_support/shoulda_matcher_configuration'
+require 'spree/testing_support/microdata'
 
 require 'paperclip/matchers'
 
 require 'capybara-screenshot/rspec'
 Capybara.save_and_open_page_path = ENV['CIRCLE_ARTIFACTS'] if ENV['CIRCLE_ARTIFACTS']
 
-require 'capybara/poltergeist'
-Capybara.javascript_driver = :poltergeist
-
-# Set timeout to something high enough to allow CI to pass
-Capybara.default_max_wait_time = 10
+if ENV['WEBDRIVER'] == 'accessible'
+  require 'capybara/accessible'
+  Capybara.javascript_driver = :accessible
+else
+  require 'capybara/poltergeist'
+  Capybara.javascript_driver = :poltergeist
+end
 
 RSpec.configure do |config|
   config.color = true
   config.fail_fast = ENV['FAIL_FAST'] || false
+  config.fixture_path = File.join(File.expand_path(File.dirname(__FILE__)), "fixtures")
   config.infer_spec_type_from_file_location!
   config.mock_with :rspec
   config.raise_errors_for_deprecations!
@@ -65,13 +73,20 @@ RSpec.configure do |config|
   # instead of true.
   config.use_transactional_fixtures = false
 
-  config.before :suite do
-    Capybara.match = :prefer_exact
-    DatabaseCleaner.clean_with :truncation
+  if ENV['WEBDRIVER'] == 'accessible'
+    config.around(:each, :inaccessible => true) do |example|
+      Capybara::Accessible.skip_audit { example.run }
+    end
+  end
+
+  # Ensure DB is clean, so that transaction isolated specs see
+  # pristine state.
+  config.before(:suite) do
+    DatabaseCleaner.strategy = :truncation
+    DatabaseCleaner.clean
   end
 
   config.before(:each) do
-    Rails.cache.clear
     WebMock.disable!
     if RSpec.current_example.metadata[:js]
       DatabaseCleaner.strategy = :truncation
@@ -83,20 +98,12 @@ RSpec.configure do |config|
     if ActiveRecord::Base.connection.open_transactions < 0
       ActiveRecord::Base.connection.increment_open_transactions
     end
-
     DatabaseCleaner.start
     reset_spree_preferences
   end
 
   config.after(:each) do
-    # Ensure js requests finish processing before advancing to the next test
-    wait_for_ajax if RSpec.current_example.metadata[:js]
-
     DatabaseCleaner.clean
-  end
-
-  config.around do |example|
-    Timeout.timeout(30, &example)
   end
 
   config.after(:each, :type => :feature) do |example|
@@ -107,6 +114,7 @@ RSpec.configure do |config|
     end
   end
 
+
   config.include FactoryGirl::Syntax::Methods
 
   config.include Spree::TestingSupport::Preferences
@@ -115,20 +123,4 @@ RSpec.configure do |config|
   config.include Spree::TestingSupport::Flash
 
   config.include Paperclip::Shoulda::Matchers
-
-  config.extend WithModel
-end
-
-module Spree
-  module TestingSupport
-    module Flash
-      def assert_flash_success(flash)
-        flash = convert_flash(flash)
-
-        within(".alert-success") do
-          expect(page).to have_content(flash)
-        end
-      end
-    end
-  end
 end

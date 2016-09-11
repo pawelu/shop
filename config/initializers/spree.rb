@@ -16,3 +16,5 @@ Spree.config do |config|
 end
 
 Spree.user_class = "Spree::User"
+# Spree Configuration
+SESSION_KEY = '_spree_session_id'
